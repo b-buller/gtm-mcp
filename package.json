@@ -1,0 +1,39 @@
+{
+  "name": "gtm-mcp",
+  "version": "1.0.0",
+  "description": "Model Context Protocol (MCP) server for Google Tag Manager. One discovery-driven tool per GTM resource, with read-only defaults and write/delete/publish guardrails.",
+  "type": "module",
+  "bin": {
+    "gtm-mcp": "src/index.js"
+  },
+  "main": "src/gtm.js",
+  "exports": {
+    ".": "./src/gtm.js"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test test/*.test.js"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "google-tag-manager",
+    "gtm",
+    "tag-manager",
+    "llm",
+    "ai",
+    "claude"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  }
+}
