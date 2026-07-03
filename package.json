@@ -4,7 +4,8 @@
   "description": "Model Context Protocol (MCP) server for Google Tag Manager. One discovery-driven tool per GTM resource, with read-only defaults and write/delete/publish guardrails.",
   "type": "module",
   "bin": {
-    "gtm-mcp": "src/index.js"
+    "gtm-mcp": "src/index.js",
+    "gtm-mcp-login": "src/login.js"
   },
   "main": "src/gtm.js",
   "exports": {
@@ -17,6 +18,7 @@
   ],
   "scripts": {
     "start": "node src/index.js",
+    "login": "node src/login.js",
     "test": "node --test test/*.test.js"
   },
   "keywords": [

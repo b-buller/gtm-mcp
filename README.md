@@ -31,11 +31,29 @@ npm install
 
 ## Authentication
 
-You need a Google OAuth access token with Tag Manager scopes. Two modes — pick one.
+Recommended: log in once with your Google account, then forget about it.
 
-### Mode 1 — Static access token (quickest)
+### Mode 1 — `npm run login` (recommended)
 
-Paste a short-lived token (valid ~1 hour). Good for trying it out.
+One-time setup:
+
+1. In [Google Cloud Console](https://console.cloud.google.com/apis/credentials): enable the **Tag Manager API** and create an **OAuth 2.0 Client ID** of type **Desktop app**. Download its JSON.
+   - If the OAuth consent screen is in **Testing** status, set it to **In production** (unverified is fine for personal use) — otherwise refresh tokens expire every 7 days.
+2. Run the login flow — your browser opens, pick your Google account:
+
+```bash
+npm run login -- /path/to/client_secret.json
+# or, with GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET exported:
+npm run login
+```
+
+Tokens land in `~/.config/gtm-mcp/tokens.json` (`0600`), including which email you connected. The server reads them automatically and silently refreshes access tokens — **no env vars needed at runtime**. Re-run `npm run login` any time to switch accounts.
+
+By default the login asks for all four Tag Manager scopes (your GTM user role still bounds what you can actually do, and the server's guardrails below gate mutations anyway). Set `GTM_SCOPES` (space/comma separated) before logging in to narrow the grant.
+
+### Mode 2 — Static access token (quickest trial)
+
+Paste a short-lived token (valid ~1 hour). Overrides everything else while set.
 
 ```bash
 export GTM_ACCESS_TOKEN="ya29...."
@@ -43,9 +61,9 @@ export GTM_ACCESS_TOKEN="ya29...."
 
 The fastest way to mint one: [OAuth 2.0 Playground](https://developers.google.com/oauthplayground) → select the Tag Manager scopes → *Exchange authorization code for tokens* → copy the **access token**.
 
-### Mode 2 — Refresh token (durable, recommended)
+### Mode 3 — Refresh token via env
 
-Set these three and the server auto-refreshes the access token as needed:
+For CI or when you'd rather manage tokens yourself. Explicit env config beats the stored login:
 
 ```bash
 export GOOGLE_CLIENT_ID="xxxx.apps.googleusercontent.com"
@@ -53,11 +71,7 @@ export GOOGLE_CLIENT_SECRET="xxxx"
 export GOOGLE_REFRESH_TOKEN="1//xxxx"
 ```
 
-To mint a refresh token:
-
-1. In [Google Cloud Console](https://console.cloud.google.com/) create an **OAuth 2.0 Client ID** (type: *Desktop app* or *Web*) and enable the **Tag Manager API**.
-2. In the [OAuth 2.0 Playground](https://developers.google.com/oauthplayground): gear icon → *Use your own OAuth credentials* → paste client id/secret.
-3. Authorize the Tag Manager scopes you need, then *Exchange authorization code for tokens* and copy the **refresh token**.
+Mint the refresh token via the [OAuth 2.0 Playground](https://developers.google.com/oauthplayground) (gear icon → *Use your own OAuth credentials*) or any OAuth tooling you already have.
 
 ### Scopes
 
@@ -84,6 +98,8 @@ Defaults are **read-only**. Mutations are opt-in via environment variables, and 
 
 ## Use it with an MCP client
 
+After `npm run login`, no credentials belong in the client config — the server reads `~/.config/gtm-mcp/tokens.json` itself.
+
 ### Claude Desktop
 
 `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
@@ -95,9 +111,6 @@ Defaults are **read-only**. Mutations are opt-in via environment variables, and 
       "command": "node",
       "args": ["/absolute/path/to/gtm-mcp/src/index.js"],
       "env": {
-        "GOOGLE_CLIENT_ID": "xxxx.apps.googleusercontent.com",
-        "GOOGLE_CLIENT_SECRET": "xxxx",
-        "GOOGLE_REFRESH_TOKEN": "1//xxxx",
         "GTM_MCP_ENABLE_WRITES": "true"
       }
     }
@@ -115,11 +128,6 @@ Defaults are **read-only**. Mutations are opt-in via environment variables, and 
     "gtm": {
       "type": "local",
       "command": ["node", "/absolute/path/to/gtm-mcp/src/index.js"],
-      "environment": {
-        "GOOGLE_CLIENT_ID": "xxxx.apps.googleusercontent.com",
-        "GOOGLE_CLIENT_SECRET": "xxxx",
-        "GOOGLE_REFRESH_TOKEN": "1//xxxx"
-      },
       "enabled": true
     }
   }
