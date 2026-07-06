@@ -22,7 +22,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { dirname } from 'node:path';
 
-import { tokensPath } from './auth.js';
+import { loadTokenStore, tokensPath } from './auth.js';
 
 const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -122,7 +122,7 @@ async function main() {
     code_challenge_method: 'S256',
     state,
     access_type: 'offline', // ask for a refresh token
-    prompt: 'consent', // ...even if previously granted
+    prompt: 'consent select_account', // ...even if previously granted; let you pick another account
   })}`;
 
   console.log(`Opening your browser for Google login…\nIf nothing opens, visit:\n\n  ${authUrl}\n`);
@@ -158,11 +158,26 @@ async function main() {
 
   const path = tokensPath();
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  writeFileSync(path, `${JSON.stringify({ client_id, client_secret, refresh_token: tokens.refresh_token, email }, null, 2)}\n`, {
-    mode: 0o600,
-  });
+
+  // Merge into the multi-account store (migrates a legacy single-account file).
+  let store;
+  try {
+    store = loadTokenStore() ?? { accounts: {} };
+  } catch {
+    store = { accounts: {} }; // unreadable/corrupt file — start fresh
+  }
+  const key = String(email || 'default').toLowerCase();
+  store.accounts[key] = { client_id, client_secret, refresh_token: tokens.refresh_token };
+  store.default ||= key;
+
+  writeFileSync(path, `${JSON.stringify(store, null, 2)}\n`, { mode: 0o600 });
 
   console.log(`Logged in as ${email ?? '(email unknown)'}.`);
+  const emails = Object.keys(store.accounts);
+  if (emails.length > 1) {
+    console.log(`Connected accounts: ${emails.join(', ')} — default: ${store.default}.`);
+    console.log('Pass `email` on a tool call (or set MCP_GTM_EMAIL) to pick which account to act as.');
+  }
   console.log(`Tokens stored at ${path}`);
   console.log('The MCP server will use them automatically — no env vars needed.');
 }

@@ -148,3 +148,58 @@ describe('stored login tokens (npm run login)', () => {
     assert.equal(await makeGetAccessToken()(), null);
   });
 });
+
+describe('multi-account store', () => {
+  const twoAccounts = {
+    default: 'a@x.com',
+    accounts: {
+      'a@x.com': { client_id: 'id-a', client_secret: 'sec-a', refresh_token: 'ref-a' },
+      'b@y.com': { client_id: 'id-b', client_secret: 'sec-b', refresh_token: 'ref-b' },
+    },
+  };
+
+  const captureFetch = () => {
+    const bodies = [];
+    global.fetch = async (url, init) => {
+      bodies.push(new URLSearchParams(init.body));
+      return new Response(JSON.stringify({ access_token: `T${bodies.length}`, expires_in: 3600 }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    };
+    return bodies;
+  };
+
+  test('selects the account matching the email, caches per account', async () => {
+    writeStoredTokens(twoAccounts);
+    const bodies = captureFetch();
+    const get = makeGetAccessToken();
+
+    const tokenB = await get('b@y.com');
+    const tokenA = await get('a@x.com');
+    assert.notEqual(tokenA, tokenB);
+    assert.equal(await get('B@Y.com'), tokenB); // cached, case-insensitive
+    assert.equal(bodies.length, 2);
+    assert.equal(bodies[0].get('refresh_token'), 'ref-b');
+    assert.equal(bodies[1].get('refresh_token'), 'ref-a');
+  });
+
+  test('omitted email uses the default account', async () => {
+    writeStoredTokens(twoAccounts);
+    const bodies = captureFetch();
+    await makeGetAccessToken()();
+    assert.equal(bodies[0].get('refresh_token'), 'ref-a');
+  });
+
+  test('unknown email fails with the list of connected accounts', async () => {
+    writeStoredTokens(twoAccounts);
+    await assert.rejects(makeGetAccessToken()('nobody@z.com'), /a@x\.com, b@y\.com/);
+  });
+
+  test('legacy flat file still works when its email is requested', async () => {
+    writeStoredTokens({ client_id: 'file-id', client_secret: 'file-sec', refresh_token: 'file-ref', email: 'Me@X.com' });
+    const bodies = captureFetch();
+    await makeGetAccessToken()('me@x.com');
+    assert.equal(bodies[0].get('refresh_token'), 'file-ref');
+  });
+});

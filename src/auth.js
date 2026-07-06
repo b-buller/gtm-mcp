@@ -13,12 +13,16 @@
 //   3. Stored login — ~/.config/gtm-mcp/tokens.json, written by `npm run login`
 //        (src/login.js). Recommended: one interactive browser login, then the
 //        server silently refreshes access tokens from the stored refresh token.
+//        Supports multiple connected accounts: run `npm run login` once per
+//        Google account, then pass `email` per tool call (or set MCP_GTM_EMAIL
+//        as the default) to pick which one to act as.
 //
-// Modes 2 and 3 share the same refresh exchange and cache the access token
-// until ~60s before expiry.
+// Modes 2 and 3 share the same refresh exchange and cache access tokens
+// (per account) until ~60s before expiry.
 //
-// The `email` argument is ignored here (single-account). To support multiple
-// connected accounts, swap this file for a provider that keys tokens by email.
+// tokens.json shapes:
+//   legacy (single account): { client_id, client_secret, refresh_token, email }
+//   current (multi-account): { default: "a@x.com", accounts: { "a@x.com": { client_id, client_secret, refresh_token } } }
 
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -39,16 +43,36 @@ function envCredentials() {
   return { client_id, client_secret, refresh_token, stored: false };
 }
 
-function storedCredentials() {
+/** Read tokens.json as a multi-account store; migrates the legacy flat shape in memory. */
+export function loadTokenStore() {
   let raw;
   try {
     raw = readFileSync(tokensPath(), 'utf8');
   } catch {
     return null; // not logged in
   }
-  const { client_id, client_secret, refresh_token } = JSON.parse(raw);
+  const data = JSON.parse(raw);
+  if (data.accounts) return data;
+  // Legacy single-account file.
+  const { client_id, client_secret, refresh_token, email } = data;
   if (!client_id || !client_secret || !refresh_token) return null;
-  return { client_id, client_secret, refresh_token, stored: true };
+  const key = String(email || 'default').toLowerCase();
+  return { default: key, accounts: { [key]: { client_id, client_secret, refresh_token } } };
+}
+
+function storedCredentials(email) {
+  const store = loadTokenStore();
+  if (!store) return null;
+  const emails = Object.keys(store.accounts);
+  const key = email || store.default || emails[0];
+  const acc = store.accounts[key];
+  if (!acc) {
+    throw new Error(
+      `No stored login for '${key}'. Connected accounts: ${emails.join(', ') || '(none)'}. Run \`npm run login\` to connect it.`
+    );
+  }
+  if (!acc.client_id || !acc.client_secret || !acc.refresh_token) return null;
+  return { ...acc, stored: true };
 }
 
 async function exchangeRefreshToken({ client_id, client_secret, refresh_token, stored }) {
@@ -72,16 +96,19 @@ async function exchangeRefreshToken({ client_id, client_secret, refresh_token, s
  * Each instance keeps its own refresh-token cache (no shared module state).
  */
 export function makeGetAccessToken() {
-  let cached = null; // { token, exp }
+  const cache = new Map(); // email ('' = default) -> { token, exp }
 
-  return async function getAccessToken(/* email */) {
+  return async function getAccessToken(email) {
     // Static token wins if present — lets you override without touching refresh config.
     if (process.env.GTM_ACCESS_TOKEN) return process.env.GTM_ACCESS_TOKEN;
 
+    const key = String(email || '').trim().toLowerCase();
+    const cached = cache.get(key);
     if (cached && cached.exp > Date.now() + 60_000) return cached.token;
-    const creds = envCredentials() ?? storedCredentials();
+    const creds = envCredentials() ?? storedCredentials(key || undefined);
     if (!creds) return null;
-    cached = await exchangeRefreshToken(creds);
-    return cached.token;
+    const fresh = await exchangeRefreshToken(creds);
+    cache.set(key, fresh);
+    return fresh.token;
   };
 }
